@@ -1,64 +1,93 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import * as faceapi from 'face-api.js';
 
-import './App.css'
-
-async function openCameraAndDetectFaces() {
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
-
-  await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
-  await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
-  await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
-
-  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-  video.srcObject = stream;
-
-  video.addEventListener('play', async () => {
-    const displaySize = { width: video.width, height: video.height };
-    faceapi.matchDimensions(canvas, displaySize);
-    setInterval(async () => {
-      const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
-      const resizedDetections = faceapi.resizeResults(detections, displaySize);
-      canvas
-        .getContext('2d')
-        .clearRect(0, 0, canvas.width, canvas.height);
-      faceapi.draw.drawDetections(canvas, resizedDetections);
-    }, 100);
-  });
-}
-
-
+import { useEffect, useRef } from 'react';
+import './App.css';
+import Webcam from 'react-webcam';
+import * as faceApi from 'face-api.js';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const webcamRef = useRef<Webcam | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const loadModelsAndStartDetection = async () => {
+      await faceApi.nets.ssdMobilenetv1.load('/assets/ssd_mobilenetv1/ssd_mobilenetv1_model-weights_manifest.json');
+      await faceApi.nets.faceLandmark68Net.load('/assets/face_landmark_68/face_landmark_68_model-weights_manifest.json');
+      await faceApi.nets.faceRecognitionNet.load('/assets/face_recognition/face_recognition_model-weights_manifest.json');
+      await faceApi.nets.ageGenderNet.load('/assets/age_gender_model/age_gender_model-weights_manifest.json');
+
+      // Start the face detection loop
+      requestAnimationFrame(detectFaces);
+    };
+
+    const detectFaces = async () => {
+
+      if (webcamRef.current && canvasRef.current) {
+        const videoElement = webcamRef.current.video as HTMLVideoElement;
+        const canvasElement = canvasRef.current;
+        const context = canvasElement.getContext('2d');
+
+        const options = new faceApi.SsdMobilenetv1Options({ maxResults: 120 });
+        const result = await faceApi.detectAllFaces(videoElement, options)
+          .withFaceLandmarks()
+          .withFaceDescriptors()
+          .withAgeAndGender()
+
+        if (context) {
+          context.clearRect(0, 0, canvasElement.width, canvasElement.height);
+          if (result.length > 0) {
+            result.forEach(async (detection) => {
+              // Get the position of the detected face
+              const face = detection.detection.box;
+              const { width, height } = face
+              const { age, gender } = detection
+              // Adjust the position of the canvas based on the detected face
+              const canvasB = face.bottom; // Adjust as needed
+              const canvasL = face.left; // Adjust as needed
+
+              // Set the canvas properties
+              canvasElement.width = width;
+              canvasElement.height = height;
+              canvasElement.style.border = '3px solid red';
+              canvasElement.style.position = 'absolute';
+              canvasElement.style.left = `${canvasL}px`;
+              canvasElement.style.bottom = `${canvasB}px`;
+
+              // You can also draw on the canvas here if needed
+              // For example, you can draw rectangles, text, etc.
+
+              context.fillStyle = '#fff'; // Set the text color
+              context.font = '20px Arial bold'; // Set the font size and family
+              context.fillText(`Age: ${age.toFixed(0)}`, 10, 20); // Draw the age text below the rectangles
+              context.fillText(`Gender: ${gender}`, 10, 50); // Draw the gender text below the rectangles
+
+
+            });
+          } else {
+            // If no face is detected, clear the canvas
+            context.clearRect(0, 0, canvasElement.width, canvasElement.height);
+          }
+        }
+
+        // Continue the face detection loop
+        requestAnimationFrame(detectFaces);
+      }
+    };
+
+
+    loadModelsAndStartDetection();
+  }, [webcamRef.current, canvasRef.current]);
 
   return (
-    <>
-      <div>
-        <a href="https://vitejs.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <div style={{ position: 'relative' }}>
+      <Webcam
+        capture='user'
+        ref={webcamRef}
+        width={'600px'}
+        height={'600px'}
+      />
+      <canvas id="canvas" ref={canvasRef}></canvas>
+    </div>
+  );
 }
 
-export default App
+export default App;
